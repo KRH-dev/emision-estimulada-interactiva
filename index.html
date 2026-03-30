@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador Láser: Modelo Ideal vs Real</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+        h1 { color: #fff; margin-bottom: 5px; text-align: center; }
+        .subtitle { color: #aaa; margin-bottom: 20px; text-align: center; max-width: 900px; }
+        
+        .layout { display: flex; gap: 20px; width: 100%; max-width: 1250px; justify-content: center; flex-wrap: wrap; }
+        
+        .panel { background-color: #1a1a1a; border: 2px solid #444; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 8px 30px rgba(0,0,0,0.6); }
+        .panel-title { font-size: 1.2em; font-weight: bold; margin-bottom: 10px; color: #fff; }
+        
+        .canvas-container { position: relative; background-color: #0d0d0d; border-radius: 8px; border: 1px solid #333; overflow: hidden; transition: border-color 0.3s, box-shadow 0.3s; }
+        .canvas-container.slow-mo { border-color: #ef4444; box-shadow: 0 0 25px rgba(239, 68, 68, 0.6); }
+        canvas { display: block; }
+        
+        .controls-wrapper { display: flex; justify-content: space-between; width: 100%; max-width: 1250px; margin-top: 20px; align-items: center; }
+        .controls-group { display: flex; gap: 15px; align-items: center; }
+        
+        button { color: white; border: none; padding: 12px 20px; font-size: 1em; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+        button:active { transform: scale(0.95); }
+        
+        .btn-pump { background-color: #3b82f6; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3); border: 2px solid transparent; }
+        .btn-pump:hover { background-color: #2563eb; }
+        .btn-pump-toggle { background-color: #1e40af; border: 2px solid #3b82f6; }
+        .btn-pump-toggle.active { background-color: #1e3a8a; border: 2px solid #60a5fa; box-shadow: 0 0 15px rgba(59, 130, 246, 0.8); }
+        
+        .btn-stim { background-color: #10b981; box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3); }
+        .btn-stim:hover { background-color: #059669; }
+        
+        /* Botón de control de fallas térmicas */
+        .btn-heat { background-color: #ef4444; border: 2px solid #f87171; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+        .btn-heat:hover { background-color: #dc2626; }
+        .btn-heat.off { background-color: #444; border: 2px solid #666; box-shadow: none; color: #aaa; }
+
+        .stats { display: flex; gap: 15px; font-weight: bold; font-size: 1em; margin-bottom: 10px; width: 100%; justify-content: space-around;}
+        .stat-e1 { color: #aaa; } .stat-e2 { color: #10b981; } .stat-e3 { color: #3b82f6; }
+        
+        .math-panel { background: #2a2a2a; border-radius: 8px; padding: 15px; margin-top: 15px; width: 100%; box-sizing: border-box; font-family: 'Courier New', Courier, monospace; }
+        .math-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 1.1em; }
+        .math-highlight { color: #10b981; font-weight: bold; }
+        .math-alert { color: #ef4444; font-weight: bold; }
+        .math-heat { color: #f59e0b; font-weight: bold; }
+        
+        #status-text { font-size: 1.1em; font-weight: bold; color: #aaa; min-height: 30px; margin-bottom: 10px; text-align: center;}
+    </style>
+</head>
+<body>
+
+    <h1>Simulador Láser: Modelo Ideal vs Real</h1>
+    <div class="subtitle">
+        Enseña primero el concepto básico apagando las fallas (Eficiencia 100%). Luego, enciende el realismo para mostrar las recombinaciones no-radiativas.
+    </div>
+
+    <div class="layout">
+        <div class="panel" style="flex: 1; min-width: 400px;">
+            <div class="panel-title">Microscópico (1 Átomo)</div>
+            <div id="status-text">Estado: Reposo en E₁</div>
+            <div class="canvas-container" id="micro-container" style="width: 450px; height: 300px;">
+                <canvas id="micro-canvas"></canvas>
+            </div>
+        </div>
+
+        <div class="panel" style="flex: 1; min-width: 450px;">
+            <div class="panel-title">Macroscópico (Medio Activo)</div>
+            <div class="stats">
+                <span class="stat-e1" id="countE1">E₁: 30</span>
+                <span class="stat-e3" id="countE3">E₃: 0</span>
+                <span class="stat-e2" id="countE2">E₂: 0</span>
+            </div>
+            <div class="canvas-container" id="macro-container" style="width: 500px; height: 300px;">
+                <canvas id="macro-canvas"></canvas>
+            </div>
+            
+            <div class="math-panel">
+                <div class="math-row">
+                    <span>Tasa Radiativa (R<sub>rr</sub>):</span>
+                    <span id="valRrr" class="math-highlight">0 /s</span>
+                </div>
+                <div class="math-row">
+                    <span>Tasa No-Radiativa (R<sub>nr</sub>):</span>
+                    <span id="valRnr" class="math-alert">0 /s</span>
+                </div>
+                <div class="math-row" style="border-top: 1px solid #444; padding-top: 8px; margin-top: 8px;">
+                    <span>Calor Total Acumulado (Fonones):</span>
+                    <span id="valTotalHeat" class="math-heat">0</span>
+                </div>
+                <hr style="border-color: #444;">
+                <div class="math-row" style="font-size: 1.2em;">
+                    <span>Eficiencia Interna (&eta;<sub>int</sub>):</span>
+                    <span id="valEta">0 %</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls-wrapper">
+        <div class="controls-group">
+            <button id="btn-toggle-pump" class="btn-pump-toggle" onclick="togglePump()">⚡ Inyección Constante [OFF]</button>
+            <button id="btn-toggle-heat" class="btn-heat off" onclick="toggleHeatLoss()">🔥 Fallas Térmicas (Rnr) [OFF]</button>
+        </div>
+        <div class="controls-group">
+            <button class="btn-pump" onclick="fireSinglePump()">1. Fotón Único (Bombeo)</button>
+            <button class="btn-stim" onclick="fireSingleStim()">2. Fotón Semilla (Estimulador)</button>
+        </div>
+    </div>
+
+    <script>
+        const microCanvas = document.getElementById('micro-canvas'); const microCtx = microCanvas.getContext('2d');
+        const macroCanvas = document.getElementById('macro-canvas'); const macroCtx = macroCanvas.getContext('2d');
+        const statusText = document.getElementById('status-text');
+        const microContainer = document.getElementById('micro-container');
+        
+        const dpr = window.devicePixelRatio || 1;
+        microCanvas.width = 450 * dpr; microCanvas.height = 300 * dpr; microCtx.scale(dpr, dpr);
+        macroCanvas.width = 500 * dpr; macroCanvas.height = 300 * dpr; macroCtx.scale(dpr, dpr);
+
+        let eventsRrr = 0; let eventsRnr = 0; let totalHeatEvents = 0; 
+        let isPumpActive = false; let pumpTimer = 0;
+        let simTimeAccumulator = 0; 
+        let heatLossEnabled = false; // Inicia apagado (Modelo Ideal)
+        
+        let microPhotons = []; let microVectors = []; let microTexts = [];
+        let macroAtoms = []; let macroPhotons = []; let macroTexts = [];
+        
+        let globalTimeScale = 1.0; 
+        function triggerGlobalSlowMo() {
+            globalTimeScale = 0.03; 
+            microContainer.classList.add('slow-mo'); 
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color) {
+                this.x = x; this.y = y; this.text = text; this.color = color;
+                this.alpha = 1.0; this.vy = -1; 
+            }
+            draw(ctx) {
+                ctx.globalAlpha = this.alpha; ctx.fillStyle = this.color; ctx.font = 'bold 16px Arial';
+                ctx.fillText(this.text, this.x, this.y); ctx.globalAlpha = 1.0;
+            }
+            update() {
+                this.y += this.vy * globalTimeScale; 
+                this.alpha -= 0.02 * globalTimeScale; 
+            }
+        }
+
+        class MicroAtom {
+            constructor() {
+                this.x = 225; this.levels = { '1': 240, '2': 140, '3': 50 };
+                this.electronY = this.levels['1']; this.state = 'E1'; this.timer = 0;
+                this.tau = 120; 
+                this.isFailing = false; 
+            }
+            update() {
+                const speed = 7 * globalTimeScale; 
+                let targetY = this.levels[this.state.charAt(1)];
+                
+                if (this.electronY < targetY) { 
+                    this.electronY += speed; 
+                    if (this.electronY > targetY) this.electronY = targetY; 
+                } 
+                else if (this.electronY > targetY) { 
+                    this.electronY -= speed; 
+                    if (this.electronY < targetY) this.electronY = targetY; 
+                }
+
+                if (this.electronY === this.levels['1'] && this.isFailing) {
+                    this.isFailing = false;
+                }
+
+                // E3 a E2: Este proceso SIEMPRE libera calor (fonones), independientemente del botón. Es obligatorio.
+                if (this.state === 'E3' && this.electronY === this.levels['3']) {
+                    this.timer += globalTimeScale; 
+                    if (this.timer > 15) { 
+                        this.state = 'E2'; this.timer = 0; 
+                        microVectors.push(new Vector(3, 2, '#f59e0b', true)); 
+                        totalHeatEvents++;
+                        microTexts.push(new FloatingText(this.x + 15, this.electronY + 10, "+ Calor", "#f59e0b"));
+                        setStatus("Relajación térmica. Energía a la red.", "#f59e0b");
+                    }
+                }
+                
+                // E2 a E1: Aquí actúa nuestro botón didáctico
+                if (this.state === 'E2' && this.electronY === this.levels['2']) {
+                    this.timer += globalTimeScale;
+                    if (this.timer > this.tau) { 
+                        this.state = 'E1'; this.timer = 0;
+                        
+                        // Si heatLossEnabled es FALSE, la probabilidad de éxito (luz) es del 100%
+                        if (!heatLossEnabled || Math.random() < 0.8) {
+                            setStatus("Recombinación Radiativa (Rrr) = Luz", "#10b981");
+                            microVectors.push(new Vector(2, 1, '#fff'));
+                            microPhotons.push(new Photon(this.x + 10, this.levels['2'], 4, (Math.random()-0.5)*3, '#10b981', 20));
+                        } else {
+                            setStatus("¡Fallo! Recombinación sin luz (Calor Rnr)", "#ef4444");
+                            microVectors.push(new Vector(2, 1, '#ef4444', true)); 
+                            totalHeatEvents++;
+                            microTexts.push(new FloatingText(this.x + 15, this.electronY + 40, "+ Calor", "#ef4444"));
+                            this.isFailing = true; 
+                            triggerGlobalSlowMo(); 
+                        }
+                    }
+                }
+            }
+            draw() {
+                microCtx.lineWidth = 2; microCtx.strokeStyle = '#555';
+                ['1', '2', '3'].forEach(l => { microCtx.beginPath(); microCtx.moveTo(30, this.levels[l]); microCtx.lineTo(420, this.levels[l]); microCtx.stroke(); });
+                microCtx.fillStyle = '#aaa'; microCtx.font = '14px Arial';
+                microCtx.fillText('E₃', 425, this.levels['3'] + 5); microCtx.fillText('E₂', 425, this.levels['2'] + 5); microCtx.fillText('E₁', 425, this.levels['1'] + 5);
+
+                if (this.state === 'E2' && this.electronY === this.levels['2']) {
+                    const progress = 1 - (this.timer / this.tau);
+                    microCtx.fillStyle = '#444'; microCtx.fillRect(this.x - 30, this.levels['2'] - 20, 60, 5);
+                    microCtx.fillStyle = '#10b981'; microCtx.fillRect(this.x - 30, this.levels['2'] - 20, 60 * progress, 5);
+                }
+                microCtx.beginPath(); microCtx.arc(this.x, this.electronY, 8, 0, 2 * Math.PI); microCtx.fillStyle = '#fff'; microCtx.fill(); microCtx.closePath();
+            }
+        }
+
+        class Photon {
+            constructor(x, y, vx, vy, color, wl) { this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.color = color; this.wl = wl; this.amp = 8; this.isActive = true; }
+            draw(ctx) {
+                ctx.beginPath(); ctx.lineWidth = 3; ctx.strokeStyle = this.color; ctx.moveTo(this.x, this.y);
+                for (let i = 0; i <= this.wl; i++) { ctx.lineTo(this.x - i, this.y + (i * (this.vy/this.vx)) + Math.sin((i / this.wl) * 2 * Math.PI) * this.amp); } ctx.stroke();
+            }
+            updateMicro(atom) {
+                this.x += this.vx * globalTimeScale; this.y += this.vy * globalTimeScale; 
+                if (this.x > 470 || this.y < -50 || this.y > 400) this.isActive = false;
+                
+                let isResting = (atom.electronY === atom.levels[atom.state.charAt(1)]);
+                
+                if (this.isActive && Math.abs(this.x - atom.x) < 15 && isResting && !atom.isFailing) {
+                    if (this.color === '#3b82f6' && atom.state === 'E1' && Math.abs(this.y - atom.levels['1']) < 20) {
+                        this.isActive = false; atom.state = 'E3'; atom.timer = 0; microVectors.push(new Vector(1, 3, '#3b82f6')); setStatus("Absorción (Generación de par)", "#3b82f6");
+                    }
+                    else if (this.color === '#10b981' && atom.state === 'E2' && Math.abs(this.y - atom.levels['2']) < 20) {
+                        this.isActive = false; atom.state = 'E1'; atom.timer = 0; microVectors.push(new Vector(2, 1, '#fff')); setStatus("Emisión Estimulada", "#10b981");
+                        microPhotons.push(new Photon(atom.x + 15, atom.levels['2'] - 8, 5, 0, '#10b981', 20)); microPhotons.push(new Photon(atom.x + 15, atom.levels['2'] + 8, 5, 0, '#10b981', 20));
+                    }
+                    else if (this.color === '#10b981' && atom.state === 'E1' && Math.abs(this.y - atom.levels['1']) < 20) {
+                        this.isActive = false; atom.state = 'E2'; atom.timer = 0; microVectors.push(new Vector(1, 2, '#10b981')); setStatus("Absorción de luz láser.", "#10b981");
+                    }
+                }
+            }
+        }
+
+        class Vector {
+            constructor(s, e, color, dashed=false) {
+                this.x = 225; this.levels = { '1': 240, '2': 140, '3': 50 }; this.startY = this.levels[s]; this.endY = this.levels[e]; this.color = color; this.dashed = dashed; this.alpha = 1.0;
+            }
+            draw(ctx) {
+                ctx.beginPath(); ctx.lineWidth = 4; ctx.strokeStyle = this.color; ctx.globalAlpha = this.alpha; if(this.dashed) ctx.setLineDash([5, 5]);
+                ctx.moveTo(this.x, this.startY); ctx.lineTo(this.x, this.endY); ctx.stroke();
+                ctx.setLineDash([]); ctx.beginPath(); ctx.fillStyle = this.color; const dir = this.endY < this.startY ? -1 : 1;
+                ctx.moveTo(this.x, this.endY); ctx.lineTo(this.x - 7, this.endY - (dir * 10)); ctx.lineTo(this.x + 7, this.endY - (dir * 10)); ctx.fill(); ctx.globalAlpha = 1.0;
+            }
+            fade() { this.alpha -= 0.015 * globalTimeScale; } 
+        }
+
+        const mAtom = new MicroAtom();
+        function setStatus(text, color) { statusText.innerText = text; statusText.style.color = color; }
+
+        for(let r=0; r<5; r++) {
+            for(let c=0; c<6; c++) {
+                macroAtoms.push({ x: 50 + c * 80, y: 40 + r * 50, state: 'E1', timer: 0, radius: 9, tau: 90 + Math.random() * 60 });
+            }
+        }
+
+        class MacroPhoton {
+            constructor(x, y, vx, color) { this.x = x; this.y = y; this.vx = vx; this.color = color; this.active = true; }
+            draw(ctx) { ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = this.color; ctx.moveTo(this.x, this.y); for(let i=0; i<15; i++) { ctx.lineTo(this.x - Math.sign(this.vx)*i, this.y + Math.sin(i*0.8)*5); } ctx.stroke(); }
+            update() { this.x += this.vx * globalTimeScale; if(this.x < -20 || this.x > 520 || this.y < -20 || this.y > 370) this.active = false; }
+        }
+
+        function fireSinglePump() {
+            if(!mAtom.isFailing) microPhotons.push(new Photon(-30, mAtom.levels['1'], 6, 0, '#3b82f6', 15));
+            for(let i=0; i<3; i++) { macroPhotons.push(new MacroPhoton(-20, Math.random()*300, 5 + Math.random(), '#3b82f6')); }
+        }
+
+        function togglePump() {
+            const btn = document.getElementById('btn-toggle-pump');
+            isPumpActive = !isPumpActive;
+            
+            if (!isPumpActive) { 
+                btn.innerText = "⚡ Inyección Constante [OFF]";
+                btn.classList.remove('active');
+            } else {
+                btn.innerText = "⚡ Inyección Constante [ON]";
+                btn.classList.add('active');
+            }
+        }
+        
+        function toggleHeatLoss() {
+            heatLossEnabled = !heatLossEnabled;
+            const btn = document.getElementById('btn-toggle-heat');
+            
+            if (heatLossEnabled) {
+                btn.innerText = "🔥 Fallas Térmicas (Rnr) [ON]";
+                btn.classList.remove('off');
+            } else {
+                btn.innerText = "🔥 Fallas Térmicas (Rnr) [OFF]";
+                btn.classList.add('off');
+            }
+        }
+
+        function fireSingleStim() {
+            const targetLevel = mAtom.state === 'E2' ? '2' : '1';
+            if(!mAtom.isFailing) microPhotons.push(new Photon(-30, mAtom.levels[targetLevel], 5, 0, '#10b981', 25));
+            macroPhotons.push(new MacroPhoton(-20, 150, 6, '#10b981'));
+        }
+
+        function gameLoop() {
+            if (globalTimeScale < 1.0 && !mAtom.isFailing) {
+                globalTimeScale += (1.0 - globalTimeScale) * 0.05; 
+                if (globalTimeScale > 0.98) {
+                    globalTimeScale = 1.0;
+                    microContainer.classList.remove('slow-mo');
+                }
+            }
+
+            simTimeAccumulator += globalTimeScale;
+            if (simTimeAccumulator >= 60) { 
+                const rTot = eventsRrr + eventsRnr;
+                const eta = rTot > 0 ? ((eventsRrr / rTot) * 100).toFixed(1) : (heatLossEnabled ? 0 : 100);
+                
+                document.getElementById('valRrr').innerText = `${eventsRrr} /s`;
+                document.getElementById('valRnr').innerText = `${eventsRnr} /s`;
+                document.getElementById('valEta').innerText = `${eta} %`;
+                document.getElementById('valEta').style.color = eta > 50 ? '#10b981' : '#f59e0b';
+                if (!heatLossEnabled && eta == 100) document.getElementById('valEta').style.color = '#3b82f6'; // Azul si es perfecto
+                
+                eventsRrr = 0; eventsRnr = 0;
+                simTimeAccumulator = 0;
+            }
+            document.getElementById('valTotalHeat').innerText = totalHeatEvents;
+
+            if (isPumpActive) {
+                pumpTimer += globalTimeScale;
+                if (pumpTimer >= 18) {
+                    pumpTimer = 0;
+                    if (!mAtom.isFailing) {
+                        microPhotons.push(new Photon(-30, mAtom.levels['1'], 6, 0, '#3b82f6', 15));
+                    }
+                    for(let i=0; i<3; i++) { macroPhotons.push(new MacroPhoton(-20, Math.random()*300, 5 + Math.random(), '#3b82f6')); }
+                }
+            }
+
+            // MICRO PANEL
+            microCtx.clearRect(0, 0, microCanvas.width, microCanvas.height); mAtom.update(); mAtom.draw();
+            microPhotons.forEach(p => { p.updateMicro(mAtom); p.draw(microCtx); }); microPhotons = microPhotons.filter(p => p.isActive);
+            microVectors.forEach(v => { v.draw(microCtx); v.fade(); }); microVectors = microVectors.filter(v => v.alpha > 0);
+            microTexts.forEach(t => { t.update(); t.draw(microCtx); }); microTexts = microTexts.filter(t => t.alpha > 0);
+
+            // MACRO PANEL
+            macroCtx.clearRect(0, 0, macroCanvas.width, macroCanvas.height);
+            let counts = { E1: 0, E2: 0, E3: 0 };
+            
+            macroAtoms.forEach(a => {
+                counts[a.state]++;
+                // Este proceso sigue ocurriendo siempre
+                if(a.state === 'E3') { 
+                    a.timer += globalTimeScale; 
+                    if(a.timer > 10) { 
+                        a.state = 'E2'; a.timer = 0; 
+                        totalHeatEvents++;
+                        macroTexts.push(new FloatingText(a.x - 15, a.y - 10, "+ Calor", "#f59e0b")); 
+                    } 
+                }
+                else if(a.state === 'E2') { 
+                    a.timer += globalTimeScale; 
+                    if(a.timer > a.tau) { 
+                        a.state = 'E1'; a.timer = 0; 
+                        
+                        // Si heatLossEnabled es FALSE, la probabilidad de éxito (luz) es del 100%
+                        if (!heatLossEnabled || Math.random() < 0.75) { 
+                            eventsRrr++; 
+                            macroPhotons.push(new MacroPhoton(a.x, a.y, (Math.random()>0.5?1:-1)*4, '#10b981')); 
+                        } 
+                        else { 
+                            eventsRnr++; 
+                            totalHeatEvents++;
+                            macroCtx.beginPath(); macroCtx.arc(a.x, a.y, 14, 0, Math.PI*2); macroCtx.fillStyle = 'rgba(239, 68, 68, 0.5)'; macroCtx.fill(); 
+                            macroTexts.push(new FloatingText(a.x - 15, a.y - 10, "+ Calor", "#ef4444")); 
+                        }
+                    } 
+                }
+                
+                macroCtx.beginPath(); macroCtx.arc(a.x, a.y, a.radius, 0, Math.PI*2);
+                if(a.state === 'E1') macroCtx.fillStyle = '#444';
+                if(a.state === 'E2') { macroCtx.fillStyle = '#10b981'; macroCtx.shadowBlur = 10; macroCtx.shadowColor = '#10b981'; }
+                if(a.state === 'E3') macroCtx.fillStyle = '#3b82f6';
+                macroCtx.fill(); macroCtx.shadowBlur = 0; macroCtx.strokeStyle = '#222'; macroCtx.stroke();
+            });
+
+            document.getElementById('countE1').innerText = `E₁: ${counts.E1}`; document.getElementById('countE2').innerText = `E₂: ${counts.E2}`; document.getElementById('countE3').innerText = `E₃: ${counts.E3}`;
+
+            macroPhotons.forEach(p => {
+                p.update(); p.draw(macroCtx);
+                if(p.active) {
+                    macroAtoms.forEach(a => {
+                        if(Math.hypot(p.x - a.x, p.y - a.y) < a.radius + 5) {
+                            if(p.color === '#3b82f6' && a.state === 'E1') { a.state = 'E3'; a.timer = 0; p.active = false; }
+                            else if (p.color === '#10b981' && a.state === 'E2') { a.state = 'E1'; a.timer = 0; eventsRrr++; macroPhotons.push(new MacroPhoton(a.x, a.y, p.vx, '#10b981')); }
+                            else if (p.color === '#10b981' && a.state === 'E1') { a.state = 'E2'; a.timer = 0; p.active = false; }
+                        }
+                    });
+                }
+            });
+            macroPhotons = macroPhotons.filter(p => p.active);
+            macroTexts.forEach(t => { t.update(); t.draw(macroCtx); }); macroTexts = macroTexts.filter(t => t.alpha > 0);
+            
+            requestAnimationFrame(gameLoop);
+        }
+        gameLoop();
+    </script>
+</body>
+</html>
